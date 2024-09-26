@@ -1,0 +1,44 @@
+<script>
+    // script version 1.0.3
+    const settings = {
+        firstDayAcademicYear: [2024, 9, 23], // 23 September 2024
+        autumnWeeks: [2, 3, 4, 5, 7, 8, 9, 10, 11, 12],
+        springWeeks: [19, 20, 21, 23, 24, 25, 26, 27, 32, 33],
+        readingWeeks: [6, 22]
+    };
+    function getTimetableWeek(firstDayAcademicYear, currentDateMs) {
+        const oneWeek = 1000 * 60 * 60 * 24 * 7;
+        const differenceMs = Math.abs(currentDateMs - firstDayAcademicYear.getTime());
+        return Math.floor(differenceMs / oneWeek) + 1;
+    }
+    function getTeachingWeek(timetableWeek, autumnWeeks, springWeeks) {
+        let tw = -1;
+        if (autumnWeeks.includes(timetableWeek)) {
+            tw = autumnWeeks.indexOf(timetableWeek) + 1;
+        } else if (springWeeks.includes(timetableWeek)) {
+            tw = springWeeks.indexOf(timetableWeek) + 1;
+        }
+        return tw;
+    }
+    function updateWeeks() {
+        const firstDay = new Date(settings.firstDayAcademicYear[0], settings.firstDayAcademicYear[1] - 1, settings.firstDayAcademicYear[2], 0, 0, 0);
+        const now = Date.now();
+        const timetableWeek = getTimetableWeek(firstDay, now);
+        const teachingWeek = getTeachingWeek(timetableWeek, settings.autumnWeeks, settings.springWeeks);
+        const readingWeeks = settings.readingWeeks;
+        document.getElementById('timetableWeek').textContent = timetableWeek;
+        if (timetableWeek === 1) {
+            document.getElementById('teachingWeek').textContent = '(Welcome Week)';
+        } else if (readingWeeks.includes(timetableWeek)) {
+            document.getElementById('teachingWeek').textContent = '(Reading Week)';
+        } else if (teachingWeek !== -1) {
+            document.getElementById('teachingWeek').textContent = `(Teaching Week ${teachingWeek})`;
+        } else {
+            document.getElementById('teachingWeek').textContent = '';
+        }
+    }
+    window.addEventListener('load', updateWeeks);
+</script>
+<h4 style="background-color: green; color: white; padding: 15px 10px;">
+Timetable Week: <span id="timetableWeek"></span> <span id="teachingWeek"></span>
+</h4>
