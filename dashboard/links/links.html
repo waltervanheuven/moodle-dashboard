@@ -1,0 +1,179 @@
+<div id="bookmarkManager" style="background-color: green; color: black; padding: 10px;">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h4 style="margin: 10px 10px;">Links</h4>
+        <button id="togglePanel" onclick="togglePanel()" style="background: lightgrey; border: 1px; color: black; cursor: pointer; margin: 5px;" title="Edit links">Edit</button>
+    </div>
+    <div id="bookmarkPanel" style="color: white;">
+        <div id="bookmarkList" style="display: flex; justify-content: space-between;"></div>
+    </div>
+    <div id="settingsPanel" style="display:none;">
+        <div id="editList"></div>
+        <div style="margin-top: 20px; margin-left: 10px; padding: 5px;">
+	        <input type="text" id="newName" placeholder="New link name">
+	        <input type="text" id="newUrl" placeholder="New link URL">
+    	    <button onclick="addBookmark()">Add Link</button>
+    	</div>
+        <div style="margin: 10px;">
+        	<button onclick="resetBookmarks()" title="Reset to default list of links">Reset</button>
+        </div>
+    </div>
+</div>
+
+<script>
+// version 1.0.1.
+let db;
+const dbPromise = indexedDB.open('MoodleBlock_LinksDB', 1);
+const defaultBookmarks = [
+	{ name: "link1", url: "" },
+	{ name: "link2", url: "" },
+	{ name: "link2", url: "" },
+];
+dbPromise.onupgradeneeded = function(event) {
+    db = event.target.result;
+    const store = db.createObjectStore('bookmarks', { keyPath: 'id', autoIncrement: true });
+    store.createIndex('name', 'name', { unique: false });
+    store.createIndex('url', 'url', { unique: false });
+};
+dbPromise.onsuccess = function(event) {
+    db = event.target.result;
+    initializeBookmarks().then(renderBookmarks);
+};
+dbPromise.onerror = function(event) {
+    console.error('IndexedDB error:', event.target.error);
+};
+const storage = {
+    get: () => {
+        return new Promise((resolve, reject) => {
+            const transaction = db.transaction(['bookmarks'], 'readonly');
+            const store = transaction.objectStore('bookmarks');
+            const request = store.getAll();
+            request.onsuccess = function(event) {
+                resolve(event.target.result);
+            };
+            request.onerror = function(event) {
+                reject('Error fetching bookmarks');
+            };
+        });
+    },
+    set: (bookmarks) => {
+        return new Promise((resolve, reject) => {
+            const transaction = db.transaction(['bookmarks'], 'readwrite');
+            const store = transaction.objectStore('bookmarks');
+            store.clear();
+            bookmarks.forEach(bookmark => {
+                store.add(bookmark);
+            });
+            transaction.oncomplete = function() {
+                resolve();
+            };
+            transaction.onerror = function(event) {
+                reject('Error saving bookmarks');
+            };
+        });
+    }
+};
+async function initializeBookmarks() {
+    let bookmarks = await storage.get();
+    if (bookmarks.length === 0) {
+        bookmarks = defaultBookmarks;
+        await storage.set(bookmarks);
+    }
+    return bookmarks;
+}
+async function resetBookmarks() {
+	let bookmarks = defaultBookmarks;
+	await storage.set(bookmarks);
+	await renderEditScreen();
+}
+async function renderBookmarks() {
+    const bookmarks = await storage.get();
+    const columns = [[], [], []];
+    bookmarks.forEach((b, index) => {
+        columns[index % 3].push(b);
+    });
+
+    const columnHTML = columns.map(column => 
+        `<div style="flex: 1;">
+            <ul style="list-style-type: none; padding-left: 10px;">
+                ${column.map(b =>
+                    `<li style="margin-bottom: 5px;">
+                        <a href="${b.url}" 
+                           style="color: white; text-decoration: none; border-bottom: 1px solid transparent;" 
+                           onmouseover="this.style.borderBottom='1px solid white'" 
+                           onmouseout="this.style.borderBottom='1px solid transparent'" 
+                           target="_blank">${b.name}</a>
+                    </li>`
+                ).join('')}
+            </ul>
+        </div>`
+    ).join('');
+
+    document.getElementById('bookmarkList').innerHTML = columnHTML;
+}
+async function renderEditScreen() {
+    const bookmarks = await storage.get();
+    document.getElementById('editList').innerHTML = bookmarks.map((b, i) => 
+        `<div style="margin-left: 10px; padding: 5px">
+            <input type="text" id="editName${b.id}" value="${b.name}">
+            <input type="text" id="editUrl${b.id}" value="${b.url}">
+            <button onclick="removeBookmark(${b.id})">Remove</button>
+        </div>`
+    ).join('');
+}
+async function addBookmark() {
+    const name = document.getElementById('newName').value;
+    const url = document.getElementById('newUrl').value;
+    if (name && url) {
+        const bookmarks = await storage.get();
+        bookmarks.push({ name, url });
+        await storage.set(bookmarks);
+        renderEditScreen();
+        document.getElementById('newName').value = '';
+        document.getElementById('newUrl').value = '';
+    }
+}
+async function removeBookmark(id) {
+    const transaction = db.transaction(['bookmarks'], 'readwrite');
+    const store = transaction.objectStore('bookmarks');
+    store.delete(id);
+    transaction.oncomplete = function() {
+        renderEditScreen();
+    };
+}
+async function saveEdits() {
+    const bookmarks = await storage.get();
+    const updatedBookmarks = bookmarks.map(b => {
+        const nameEl = document.getElementById(`editName${b.id}`);
+        const urlEl = document.getElementById(`editUrl${b.id}`);
+        if (nameEl && urlEl) {
+            return { ...b, name: nameEl.value, url: urlEl.value };
+        }
+        return b;
+    });
+    await storage.set(updatedBookmarks);
+}
+async function togglePanel() {
+    const bookmarkPanel = document.getElementById('bookmarkPanel');
+    const settingsPanel = document.getElementById('settingsPanel');
+    const toggleButton = document.getElementById('togglePanel');
+
+    if (bookmarkPanel.style.display !== 'none') {
+        bookmarkPanel.style.display = 'none';
+        settingsPanel.style.display = 'block';
+        toggleButton.textContent = 'Show';
+        toggleButton.title = "Show links";        
+        await renderEditScreen();
+    } else {
+        await saveEdits();
+        bookmarkPanel.style.display = 'block';
+        settingsPanel.style.display = 'none';
+        toggleButton.textContent = 'Edit';
+        toggleButton.title = "Edit links";        
+        await renderBookmarks();
+    }
+}
+dbPromise.onsuccess = function(event) {
+    db = event.target.result;
+    initializeBookmarks().then(renderBookmarks);
+};
+</script>

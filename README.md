@@ -1,5 +1,6 @@
 # Moodle Dashboard blocks
 
-HTML and JavaScript code snippets that can be used for the Dashboard blocks on [Moodle](https://moodle.org).
+HTML and JavaScript code snippets that can be used for blocks on the [Moodle](https://moodle.org) dashboard.
 
-- [Timetable Week, Teaching Week, Welcome week and Reading Weeks Info](dashboard/timetableweek/README.md)
+- [Timetable Info](dashboard/timetableweek/README.md)
+- [Useful Links](dashboard/links/README.md)
