@@ -1,179 +1,297 @@
-<div id="bookmarkManager" style="background-color: green; color: black; padding: 10px;">
-    <div style="display: flex; justify-content: space-between; align-items: center;">
-        <h4 style="margin: 10px 10px;">Links</h4>
-        <button id="togglePanel" onclick="togglePanel()" style="background: lightgrey; border: 1px; color: black; cursor: pointer; margin: 5px;" title="Edit links">Edit</button>
+<div id="bookmarkManager" style="background-color: green; color: black;"></div>
+    <div style="display: flex; justify-content: space-between; align-items: center; background-color: green; padding: 0px;">
+        <h4 style="margin-left: 20px; margin-top: 20px; margin-bottom: 10px;">Links</h4>
+        <button id="linkTogglePanelID" onclick="linkTogglePanel()" style="background: lightgrey; border: 1px; color: black; cursor: pointer; margin-right: 15px;" title="Edit links">Edit</button>
     </div>
-    <div id="bookmarkPanel" style="color: white;">
-        <div id="bookmarkList" style="display: flex; justify-content: space-between;"></div>
+    <div id="linkBookmarkPanelID" style="color: white; background-color: green;">
+        <div id="bookmarkListID" style="margin-left: 15px; display: flex; justify-content: space-between;"></div>
     </div>
-    <div id="settingsPanel" style="display:none;">
-        <div id="editList"></div>
-        <div style="margin-top: 20px; margin-left: 10px; padding: 5px;">
-	        <input type="text" id="newName" placeholder="New link name">
-	        <input type="text" id="newUrl" placeholder="New link URL">
-    	    <button onclick="addBookmark()">Add Link</button>
-    	</div>
+    <div id="linkSettingsPanelID" style="display:none; background-color: green; color: white; padding: 10px;">
+        <div id="linkEditList"></div>
+        <div style="margin-top: 20px; margin-left: 20px; padding: 5px;">
+            <input type="text" id="newName" placeholder="New link name">
+            <input type="text" id="newUrl" placeholder="New link URL">
+            <button onclick="linkAddBookmark()">Add Link</button>
+        </div>
         <div style="margin: 10px;">
-        	<button onclick="resetBookmarks()" title="Reset to default list of links">Reset</button>
+            <button onclick="linkResetBookmarks()" title="Reset to default list of links">Reset</button>
         </div>
     </div>
 </div>
-
 <script>
-// version 1.0.1.
-let db;
-const dbPromise = indexedDB.open('MoodleBlock_LinksDB', 1);
-const defaultBookmarks = [
-	{ name: "link1", url: "" },
-	{ name: "link2", url: "" },
-	{ name: "link2", url: "" },
+// version 1.1.0
+const LINK_DB_NAME = 'MyLinksDB';
+const LINK_STORE_NAME = 'linkBookmarks';
+const LINK_STORAGE_KEY = 'bookmarksList';
+const LINK_SCHEMA_VERSION_KEY = 'schemaVersion';
+let LINK_DB_VERSION = 2;
+const LINK_CURRENT_SCHEMA_VERSION = 1;
+const linkDefaultBookmarks = [
+    { name: "Link1", url: "https://" },
+    { name: "Link2", url: "https://" },
+    { name: "Link3", url: "https://" },
 ];
-dbPromise.onupgradeneeded = function(event) {
-    db = event.target.result;
-    const store = db.createObjectStore('bookmarks', { keyPath: 'id', autoIncrement: true });
-    store.createIndex('name', 'name', { unique: false });
-    store.createIndex('url', 'url', { unique: false });
+let link_db;
+let linkBookmarks = null;
+const MyLinksDBAvailable = () => {
+    try {
+        return 'indexedDB' in window && window.indexedDB !== null;
+    } catch (e) {
+        return false;
+    }
 };
-dbPromise.onsuccess = function(event) {
-    db = event.target.result;
-    initializeBookmarks().then(renderBookmarks);
+const linkCheckAndUpdateSchema = () => {
+    return new Promise((resolve) => {
+        if (!MyLinksDBAvailable()) {
+            resolve(false);
+            return;
+        }
+        const request = indexedDB.open(LINK_DB_NAME);
+        request.onerror = () => resolve(false);
+        request.onsuccess = (event) => {
+            const db = event.target.result;
+            if (!db.objectStoreNames.contains(LINK_STORE_NAME)) {
+                db.close();
+                LINK_DB_VERSION++;
+                resolve(true);
+                return;
+            }
+            const transaction = db.transaction([LINK_STORE_NAME], 'readonly');
+            const store = transaction.objectStore(LINK_STORE_NAME);
+            const getVersion = store.get(LINK_SCHEMA_VERSION_KEY);
+            getVersion.onerror = () => {
+                db.close();
+                LINK_DB_VERSION++;
+                resolve(true);
+            };
+            getVersion.onsuccess = (e) => {
+                const currentVersion = e.target.result ? e.target.result.value : 0;
+                db.close();
+                if (currentVersion < LINK_CURRENT_SCHEMA_VERSION) {
+                    LINK_DB_VERSION++;
+                    resolve(true);
+                } else {
+                    resolve(false);
+                }
+            };
+        };
+    });
 };
-dbPromise.onerror = function(event) {
-    console.error('IndexedDB error:', event.target.error);
+const linkOpenDB = () => {
+    return new Promise((resolve) => {
+        if (!MyLinksDBAvailable()) {
+            resolve(null);
+            return;
+        }
+        const request = indexedDB.open(LINK_DB_NAME, LINK_DB_VERSION);
+        request.onerror = () => resolve(null);
+        request.onsuccess = (event) => {
+            link_db = event.target.result;
+            resolve(link_db);
+        };
+        request.onupgradeneeded = (event) => {
+            link_db = event.target.result;
+            if (!link_db.objectStoreNames.contains(LINK_STORE_NAME)) {
+                link_db.createObjectStore(LINK_STORE_NAME, { keyPath: 'key' });
+            }
+            const transaction = event.target.transaction;
+            const store = transaction.objectStore(LINK_STORE_NAME);
+            store.put({ key: LINK_STORAGE_KEY, value: linkDefaultBookmarks });
+            store.put({ key: LINK_SCHEMA_VERSION_KEY, value: LINK_CURRENT_SCHEMA_VERSION });
+        };
+    });
 };
-const storage = {
+const linkStorage = {
     get: () => {
-        return new Promise((resolve, reject) => {
-            const transaction = db.transaction(['bookmarks'], 'readonly');
-            const store = transaction.objectStore('bookmarks');
-            const request = store.getAll();
-            request.onsuccess = function(event) {
-                resolve(event.target.result);
-            };
-            request.onerror = function(event) {
-                reject('Error fetching bookmarks');
-            };
+        return new Promise(async (resolve) => {
+            try {
+                if (!link_db) {
+                    await linkOpenDB();  // Ensure DB is open
+                }
+                if (!link_db) {
+                    console.error("Failed to open IndexedDB");
+                    resolve([...linkDefaultBookmarks]);
+                    return;
+                }
+                const transaction = link_db.transaction([LINK_STORE_NAME], 'readonly');
+                const store = transaction.objectStore(LINK_STORE_NAME);
+                const request = store.get(LINK_STORAGE_KEY);
+                request.onerror = (event) => {
+                    console.error("Error retrieving bookmarks from IndexedDB:", event.target.error);
+                    resolve([...linkDefaultBookmarks]);
+                };
+                request.onsuccess = (event) => {
+                    const result = event.target.result;
+                    if (result && result.value) {
+                        linkBookmarks = result.value;
+                        console.log("Retrieved bookmarks from IndexedDB:", linkBookmarks);
+                    } else {
+                        console.log("No bookmarks found in IndexedDB, using defaults");
+                        linkBookmarks = [...linkDefaultBookmarks];
+                    }
+                    resolve(linkBookmarks);
+                };
+            } catch (error) {
+                console.error("Unexpected error in linkStorage.get:", error);
+                resolve([...linkDefaultBookmarks]);
+            }
         });
     },
     set: (bookmarks) => {
-        return new Promise((resolve, reject) => {
-            const transaction = db.transaction(['bookmarks'], 'readwrite');
-            const store = transaction.objectStore('bookmarks');
-            store.clear();
-            bookmarks.forEach(bookmark => {
-                store.add(bookmark);
-            });
-            transaction.oncomplete = function() {
+        return new Promise((resolve) => {
+            linkBookmarks = [...bookmarks];
+            if (!link_db) {
+                resolve();
+                return;
+            }
+            const transaction = link_db.transaction([LINK_STORE_NAME], 'readwrite');
+            const store = transaction.objectStore(LINK_STORE_NAME);
+            const request = store.put({ key: LINK_STORAGE_KEY, value: bookmarks });
+            request.onerror = () => resolve();
+            request.onsuccess = () => resolve();
+        });
+    },
+    clear: () => {
+        return new Promise((resolve) => {
+            linkBookmarks = [...linkDefaultBookmarks];
+            if (!link_db) {
+                resolve();
+                return;
+            }
+            const transaction = link_db.transaction([LINK_STORE_NAME], 'readwrite');
+            const store = transaction.objectStore(LINK_STORE_NAME);
+            const request = store.clear();
+            request.onerror = () => resolve();
+            request.onsuccess = () => {
+                store.put({ key: LINK_STORAGE_KEY, value: linkDefaultBookmarks });
+                store.put({ key: LINK_SCHEMA_VERSION_KEY, value: LINK_CURRENT_SCHEMA_VERSION });
                 resolve();
             };
-            transaction.onerror = function(event) {
-                reject('Error saving bookmarks');
-            };
+        });
+    },
+    isEmpty: () => {
+        return new Promise((resolve) => {
+            if (!linkBookmarks) {
+                resolve(true);
+                return;
+            }
+            resolve(linkBookmarks.length === 0);
         });
     }
 };
-async function initializeBookmarks() {
-    let bookmarks = await storage.get();
-    if (bookmarks.length === 0) {
-        bookmarks = defaultBookmarks;
-        await storage.set(bookmarks);
+async function linkInitializeBookmarks() {
+    const needsUpdate = await linkCheckAndUpdateSchema();
+    if (needsUpdate) {
+        console.log("Schema update required. Updating...");
     }
-    return bookmarks;
+    await linkOpenDB();
+    return linkStorage.get();
 }
-async function resetBookmarks() {
-	let bookmarks = defaultBookmarks;
-	await storage.set(bookmarks);
-	await renderEditScreen();
+async function linkResetBookmarks() {
+    await linkStorage.clear();
+    await linkRenderEditScreen();
+    await linkRenderBookmarks();
 }
-async function renderBookmarks() {
-    const bookmarks = await storage.get();
+async function linkRenderBookmarks() {
+    const bookmarks = await linkStorage.get();
     const columns = [[], [], []];
     bookmarks.forEach((b, index) => {
         columns[index % 3].push(b);
     });
-
-    const columnHTML = columns.map(column => 
+    const columnHTML = columns.map(column =>
         `<div style="flex: 1;">
             <ul style="list-style-type: none; padding-left: 10px;">
                 ${column.map(b =>
                     `<li style="margin-bottom: 5px;">
-                        <a href="${b.url}" 
-                           style="color: white; text-decoration: none; border-bottom: 1px solid transparent;" 
-                           onmouseover="this.style.borderBottom='1px solid white'" 
-                           onmouseout="this.style.borderBottom='1px solid transparent'" 
+                        <a href="${b.url}"
+                           style="color: white; text-decoration: none; border-bottom: 1px solid transparent;"
+                           onmouseover="this.style.borderBottom='1px solid white'"
+                           onmouseout="this.style.borderBottom='1px solid transparent'"
                            target="_blank">${b.name}</a>
                     </li>`
                 ).join('')}
             </ul>
         </div>`
     ).join('');
-
-    document.getElementById('bookmarkList').innerHTML = columnHTML;
+    document.getElementById('bookmarkListID').innerHTML = columnHTML;
 }
-async function renderEditScreen() {
-    const bookmarks = await storage.get();
-    document.getElementById('editList').innerHTML = bookmarks.map((b, i) => 
+async function linkRenderEditScreen() {
+    const bookmarks = await linkStorage.get();
+    document.getElementById('linkEditList').innerHTML = bookmarks.map((b, i) =>
         `<div style="margin-left: 10px; padding: 5px">
-            <input type="text" id="editName${b.id}" value="${b.name}">
-            <input type="text" id="editUrl${b.id}" value="${b.url}">
-            <button onclick="removeBookmark(${b.id})">Remove</button>
+            <input type="text" id="editName${i}" value="${b.name}">
+            <input type="text" id="editUrl${i}" value="${b.url}">
+            <button onclick="linkRemoveBookmark(${i})">Remove</button>
         </div>`
     ).join('');
 }
-async function addBookmark() {
+async function linkAddBookmark() {
     const name = document.getElementById('newName').value;
     const url = document.getElementById('newUrl').value;
     if (name && url) {
-        const bookmarks = await storage.get();
+        const bookmarks = await linkStorage.get();
         bookmarks.push({ name, url });
-        await storage.set(bookmarks);
-        renderEditScreen();
+        await linkStorage.set(bookmarks);
+        await linkRenderEditScreen();
         document.getElementById('newName').value = '';
         document.getElementById('newUrl').value = '';
     }
 }
-async function removeBookmark(id) {
-    const transaction = db.transaction(['bookmarks'], 'readwrite');
-    const store = transaction.objectStore('bookmarks');
-    store.delete(id);
-    transaction.oncomplete = function() {
-        renderEditScreen();
-    };
+async function linkRemoveBookmark(index) {
+    try {
+        const bookmarks = await linkStorage.get();
+        bookmarks.splice(index, 1);
+        await linkStorage.set(bookmarks);
+        await linkRenderEditScreen();
+        await linkRenderBookmarks();
+    } catch (error) {
+        console.error("Failed to remove bookmark:", error);
+        alert("Failed to remove bookmark. Please try again.");
+    }
 }
-async function saveEdits() {
-    const bookmarks = await storage.get();
-    const updatedBookmarks = bookmarks.map(b => {
-        const nameEl = document.getElementById(`editName${b.id}`);
-        const urlEl = document.getElementById(`editUrl${b.id}`);
+async function linkSaveEdits() {
+    const bookmarks = await linkStorage.get();
+    const updatedBookmarks = bookmarks.map((b, i) => {
+        const nameEl = document.getElementById(`editName${i}`);
+        const urlEl = document.getElementById(`editUrl${i}`);
         if (nameEl && urlEl) {
-            return { ...b, name: nameEl.value, url: urlEl.value };
+            return {
+                name: nameEl.value,
+                url: urlEl.value
+            };
         }
         return b;
     });
-    await storage.set(updatedBookmarks);
+    await linkStorage.set(updatedBookmarks);
+    console.log("Edits saved");
+    await linkRenderBookmarks(); // Add this line to update the main view
 }
-async function togglePanel() {
-    const bookmarkPanel = document.getElementById('bookmarkPanel');
-    const settingsPanel = document.getElementById('settingsPanel');
-    const toggleButton = document.getElementById('togglePanel');
-
+async function linkTogglePanel() {
+    const bookmarkPanel = document.getElementById('linkBookmarkPanelID');
+    const settingsPanel = document.getElementById('linkSettingsPanelID');
+    const toggleButton = document.getElementById('linkTogglePanelID');
     if (bookmarkPanel.style.display !== 'none') {
         bookmarkPanel.style.display = 'none';
         settingsPanel.style.display = 'block';
         toggleButton.textContent = 'Show';
-        toggleButton.title = "Show links";        
-        await renderEditScreen();
+        toggleButton.title = "Show links";
+        await linkRenderEditScreen();
     } else {
-        await saveEdits();
+        await linkSaveEdits();
         bookmarkPanel.style.display = 'block';
         settingsPanel.style.display = 'none';
         toggleButton.textContent = 'Edit';
-        toggleButton.title = "Edit links";        
-        await renderBookmarks();
+        toggleButton.title = "Edit links";
+        await linkRenderBookmarks();
     }
 }
-dbPromise.onsuccess = function(event) {
-    db = event.target.result;
-    initializeBookmarks().then(renderBookmarks);
-};
+window.addEventListener('load', async () => {
+    try {
+        await linkInitializeBookmarks();
+        await linkRenderBookmarks();
+    } catch (error) {
+        console.error("Failed to initialize bookmark manager:", error);
+        document.getElementById('bookmarkList').innerHTML = '<p>Unable to load bookmarks</p>';
+    }
+});
 </script>
