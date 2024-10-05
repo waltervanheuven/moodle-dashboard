@@ -6,4 +6,4 @@ Moodle block shows useful links on the Moodle dashboard. The links can be edited
 
 ![Image that shows editing the links](img/links_edit.png)
 
-Version 1.0.1. [Code for the block](links.html)
+Version 1.1.0 [Code for the block](links.html)
