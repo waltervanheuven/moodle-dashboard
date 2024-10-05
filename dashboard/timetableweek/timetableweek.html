@@ -1,44 +1,315 @@
+<div id="ttPanelID" style="background-color: green; color: white; padding: 10px;">
+    <div id="ttInfoID" style="display: flex; justify-content: space-between; align-items: center;">
+        <h4>Timetable Week: <span id="ttTimetableWeekID"></span> <span id="ttTeachingWeekID"></span></h4>
+        <button id="ttToggleButtonEditID" onclick="ttTogglePanel()" style="background: lightgrey; border: 1px; color: black; cursor: pointer; margin: 5px;" title="Edit Settings">Edit</button>
+    </div>
+    <div id="ttSettingsPanelHeaderID" style="display: none; justify-content: space-between; align-items: center;">
+        <h4>Edit Settings</h4>
+        <button id="ttToggleButtonShowID" onclick="ttTogglePanel()" style="background: lightgrey; border: 1px; color: black; cursor: pointer; margin: 5px;" title="Show Timetable Week">Show</button>
+    </div>
+    <div id="ttSettingsPanelID" style="display: none; background-color: green; color: white; padding: 10px;">
+        <div id="ttEditListID" style="display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: center;">
+        </div>
+        <div style="margin-top: 10px;">
+            <button onclick="ttSaveEdits()">Save</button>
+            <button onclick="ttResetSettings()" style="margin-left: 10px;">Reset</button>
+        </div>
+    </div>
+</div>
 <script>
-    // script version 1.0.3
-    const settings = {
-        firstDayAcademicYear: [2024, 9, 23], // 23 September 2024
+    // script version 1.1.0
+    const TT_DB_NAME = 'MyTimetableDB';
+    const TT_STORE_NAME = 'ttSettings';
+    const TT_STORAGE_KEY = 'ttSettings';
+    const TT_SCHEMA_VERSION_KEY = 'schemaVersion';
+    let TT_DB_VERSION = 2;
+    const TT_CURRENT_SCHEMA_VERSION = 2;
+    const ttDefaultSettings = {
+        firstDayAcademicYear: '2024-09-23',
         autumnWeeks: [2, 3, 4, 5, 7, 8, 9, 10, 11, 12],
-        springWeeks: [19, 20, 21, 23, 24, 25, 26, 27, 32, 33],
+        springWeeks: [19, 20, 21, 23, 24, 25, 26, 27, 32, 33, 34],
+        summerWeeks: [40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52],
+        winterVacation: [13, 14, 15, 16],
+        springVacation: [28, 29, 30, 31],
+        assessmentWeeks: [17, 18, 35, 36, 37],
         readingWeeks: [6, 22]
     };
-    function getTimetableWeek(firstDayAcademicYear, currentDateMs) {
+    let tt_db;
+    let ttSettings = null;
+    const MyTimetableDBAvailable = () => {
+        try {
+            return 'indexedDB' in window && window.indexedDB !== null;
+        } catch (e) {
+            return false;
+        }
+    };
+    const ttCheckAndUpdateSchema = () => {
+        return new Promise((resolve) => {
+            if (!MyTimetableDBAvailable()) {
+                resolve(false);
+                return;
+            }
+            const request = indexedDB.open(TT_DB_NAME);
+            request.onerror = () => resolve(false);
+            request.onsuccess = (event) => {
+                const db = event.target.result;
+                if (!db.objectStoreNames.contains(TT_STORE_NAME)) {
+                    db.close();
+                    TT_DB_VERSION++;
+                    resolve(true);
+                    return;
+                }
+                const transaction = db.transaction([TT_STORE_NAME], 'readonly');
+                const store = transaction.objectStore(TT_STORE_NAME);
+                const getVersion = store.get(TT_SCHEMA_VERSION_KEY);
+                getVersion.onerror = () => {
+                    db.close();
+                    TT_DB_VERSION++;
+                    resolve(true);
+                };
+                getVersion.onsuccess = (e) => {
+                    const currentVersion = e.target.result ? e.target.result.value : 0;
+                    db.close();
+                    if (currentVersion < TT_CURRENT_SCHEMA_VERSION) {
+                        TT_DB_VERSION++;
+                        resolve(true);
+                    } else {
+                        resolve(false);
+                    }
+                };
+            };
+        });
+    };
+    const ttOpenDB = () => {
+        return new Promise((resolve) => {
+            if (!MyTimetableDBAvailable()) {
+                resolve(null);
+                return;
+            }
+            const request = indexedDB.open(TT_DB_NAME, TT_DB_VERSION);
+            request.onerror = () => resolve(null);
+            request.onsuccess = (event) => {
+                tt_db = event.target.result;
+                resolve(tt_db);
+            };
+            request.onupgradeneeded = (event) => {
+                tt_db = event.target.result;
+                if (!tt_db.objectStoreNames.contains(TT_STORE_NAME)) {
+                    tt_db.createObjectStore(TT_STORE_NAME, {
+                        keyPath: 'key'
+                    });
+                }
+                const transaction = event.target.transaction;
+                const store = transaction.objectStore(TT_STORE_NAME);
+                store.put({
+                    key: TT_STORAGE_KEY,
+                    value: ttDefaultSettings
+                });
+                store.put({
+                    key: TT_SCHEMA_VERSION_KEY,
+                    value: TT_CURRENT_SCHEMA_VERSION
+                });
+            };
+        });
+    };
+    const ttStorage = {
+        get: () => {
+            return new Promise((resolve) => {
+                if (ttSettings) {
+                    resolve(ttSettings);
+                    return;
+                }
+                if (!tt_db) {
+                    ttSettings = {
+                        ...ttDefaultSettings
+                    };
+                    resolve(ttSettings);
+                    return;
+                }
+                const transaction = tt_db.transaction([TT_STORE_NAME], 'readonly');
+                const store = transaction.objectStore(TT_STORE_NAME);
+                const request = store.get(TT_STORAGE_KEY);
+                request.onerror = () => {
+                    ttSettings = {
+                        ...ttDefaultSettings
+                    };
+                    resolve(ttSettings);
+                };
+                request.onsuccess = (event) => {
+                    ttSettings = event.target.result ? event.target.result.value : {
+                        ...ttDefaultSettings
+                    };
+                    resolve(ttSettings);
+                };
+            });
+        },
+        set: (settings) => {
+            return new Promise((resolve) => {
+                ttSettings = {
+                    ...settings
+                };
+                if (!tt_db) {
+                    resolve();
+                    return;
+                }
+                const transaction = tt_db.transaction([TT_STORE_NAME], 'readwrite');
+                const store = transaction.objectStore(TT_STORE_NAME);
+                const request = store.put({
+                    key: TT_STORAGE_KEY,
+                    value: settings
+                });
+                request.onerror = () => resolve();
+                request.onsuccess = () => resolve();
+            });
+        },
+        clear: () => {
+            return new Promise((resolve) => {
+                ttSettings = {
+                    ...ttDefaultSettings
+                };
+                if (!tt_db) {
+                    resolve();
+                    return;
+                }
+                const transaction = tt_db.transaction([TT_STORE_NAME], 'readwrite');
+                const store = transaction.objectStore(TT_STORE_NAME);
+                const request = store.clear();
+                request.onerror = () => resolve();
+                request.onsuccess = () => {
+                    store.put({
+                        key: TT_STORAGE_KEY,
+                        value: ttDefaultSettings
+                    });
+                    store.put({
+                        key: TT_SCHEMA_VERSION_KEY,
+                        value: TT_CURRENT_SCHEMA_VERSION
+                    });
+                    resolve();
+                };
+            });
+        },
+        isEmpty: () => {
+            return new Promise((resolve) => {
+                if (!ttSettings) {
+                    resolve(true);
+                    return;
+                }
+                resolve(Object.keys(ttSettings).length === 0);
+            });
+        }
+    };
+    async function ttInitializeTimetableInfo() {
+        const needsUpdate = await ttCheckAndUpdateSchema();
+        if (needsUpdate) {
+            console.log("Schema update required. Updating...");
+        }
+        await ttOpenDB();
+        await ttStorage.get();
+    }
+    async function ttResetSettings() {
+        await ttStorage.clear();
+        await ttRenderEditScreen();
+    }
+    async function ttRenderEditScreen() {
+        const settings = await ttStorage.get();
+        document.getElementById('ttEditListID').innerHTML = Object.entries(settings).map(([key, value]) => {
+            if (key === 'firstDayAcademicYear') {
+                return `<label for="${key}">${key}:</label><input type="date" id="${key}" value="${value}">`;
+            } else {
+                return `<label for="${key}">${key}:</label><input type="text" id="${key}" title="Enter numbers separated by commas" value="${Array.isArray(value) ? value.join(', ') : value}">`;
+            }
+        }).join('');
+    }
+    async function ttSaveEdits() {
+        const settings = await ttStorage.get();
+        Object.keys(settings).forEach(key => {
+            const inputEl = document.getElementById(`${key}`);
+            if (inputEl) {
+                if (key === 'firstDayAcademicYear') {
+                    settings[key] = inputEl.value;
+                } else if (Array.isArray(settings[key])) {
+                    settings[key] = inputEl.value.split(',').map(v => {
+                        const num = parseInt(v.trim());
+                        return isNaN(num) ? null : num;
+                    }).filter(v => v !== null);
+                } else {
+                    settings[key] = inputEl.value;
+                }
+            }
+        });
+        await ttStorage.set(settings);
+        ttTogglePanel();
+        await ttRenderTimetableInfo();
+    }
+
+    function ttTogglePanel() {
+        const info = document.getElementById('ttInfoID');
+        const headerPanel = document.getElementById('ttSettingsPanelHeaderID');
+        const settingsPanel = document.getElementById('ttSettingsPanelID');
+        if (info.style.display !== 'none') {
+            info.style.display = 'none';
+            headerPanel.style.display = 'flex';
+            settingsPanel.style.display = 'block';
+            ttRenderEditScreen();
+        } else {
+            info.style.display = 'flex';
+            headerPanel.style.display = 'none';
+            settingsPanel.style.display = 'none';
+            ttRenderTimetableInfo();
+        }
+    }
+
+    function ttGetTimetableWeek(firstDayAcademicYear, currentDateMs) {
         const oneWeek = 1000 * 60 * 60 * 24 * 7;
-        const differenceMs = Math.abs(currentDateMs - firstDayAcademicYear.getTime());
+        const firstDay = new Date(firstDayAcademicYear);
+        const differenceMs = Math.abs(currentDateMs - firstDay.getTime());
         return Math.floor(differenceMs / oneWeek) + 1;
     }
-    function getTeachingWeek(timetableWeek, autumnWeeks, springWeeks) {
-        let tw = -1;
+
+    function ttGetTeachingWeek(timetableWeek, autumnWeeks, springWeeks) {
         if (autumnWeeks.includes(timetableWeek)) {
-            tw = autumnWeeks.indexOf(timetableWeek) + 1;
+            return autumnWeeks.indexOf(timetableWeek) + 1;
         } else if (springWeeks.includes(timetableWeek)) {
-            tw = springWeeks.indexOf(timetableWeek) + 1;
+            return springWeeks.indexOf(timetableWeek) + 1;
         }
-        return tw;
+        return -1;
     }
-    function updateWeeks() {
-        const firstDay = new Date(settings.firstDayAcademicYear[0], settings.firstDayAcademicYear[1] - 1, settings.firstDayAcademicYear[2], 0, 0, 0);
+    async function ttRenderTimetableInfo() {
+        const settings = await ttStorage.get();
+        const dateArr = settings.firstDayAcademicYear.split('-');
+        const firstDayAcademicYear = new Date(dateArr[0], dateArr[1] - 1, dateArr[2], 0, 0, 0);
         const now = Date.now();
-        const timetableWeek = getTimetableWeek(firstDay, now);
-        const teachingWeek = getTeachingWeek(timetableWeek, settings.autumnWeeks, settings.springWeeks);
-        const readingWeeks = settings.readingWeeks;
-        document.getElementById('timetableWeek').textContent = timetableWeek;
-        if (timetableWeek === 1) {
-            document.getElementById('teachingWeek').textContent = '(Welcome Week)';
-        } else if (readingWeeks.includes(timetableWeek)) {
-            document.getElementById('teachingWeek').textContent = '(Reading Week)';
+        const timetableWeek = ttGetTimetableWeek(firstDayAcademicYear, now);
+        const teachingWeek = ttGetTeachingWeek(timetableWeek, settings.autumnWeeks, settings.springWeeks);
+        document.getElementById('ttTimetableWeekID').textContent = timetableWeek;
+        if (timetableWeek < 1 || timetableWeek > 52) {
+            document.getElementById('ttTeachingWeekID').innerHTML = "<br><span style='color: red'>Error, Update Academic First Day in Settings</span>";
+        } else if (timetableWeek === 1) {
+            document.getElementById('ttTeachingWeekID').textContent = '(Welcome Week)';
+        } else if (settings.winterVacation.includes(timetableWeek)) {
+            document.getElementById('ttTeachingWeekID').textContent = '(Winter Vacation)';
+        } else if (settings.springVacation.includes(timetableWeek)) {
+            document.getElementById('ttTeachingWeekID').textContent = '(Spring Vacation)';
+        } else if (settings.assessmentWeeks.includes(timetableWeek)) {
+            document.getElementById('ttTeachingWeekID').textContent = '(Assessments)';
+        } else if (settings.summerWeeks.includes(timetableWeek)) {
+            document.getElementById('ttTeachingWeekID').textContent = '(Summer)';
+        } else if (settings.readingWeeks.includes(timetableWeek)) {
+            document.getElementById('ttTeachingWeekID').textContent = '(Reading Week)';
         } else if (teachingWeek !== -1) {
-            document.getElementById('teachingWeek').textContent = `(Teaching Week ${teachingWeek})`;
+            document.getElementById('ttTeachingWeekID').textContent = `(Teaching Week ${teachingWeek})`;
         } else {
-            document.getElementById('teachingWeek').textContent = '';
+            document.getElementById('ttTeachingWeekID').textContent = '';
         }
     }
-    window.addEventListener('load', updateWeeks);
+    window.addEventListener('load', async () => {
+        try {
+            await ttInitializeTimetableInfo();
+            await ttRenderTimetableInfo();
+        } catch (error) {
+            console.error("Failed to initialize timetable block:", error);
+            document.getElementById('ttTimetableWeekID').textContent = 'Error';
+            document.getElementById('ttTeachingWeekID').textContent = 'Unable to load timetable information';
+        }
+    });
 </script>
-<h4 style="background-color: green; color: white; padding: 15px 10px;">
-Timetable Week: <span id="timetableWeek"></span> <span id="teachingWeek"></span>
-</h4>

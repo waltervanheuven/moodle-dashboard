@@ -2,6 +2,6 @@
 
 ![Image that shows the timetable block on the dashboard](img/timetable.png)
 
-Moodle block that shows automatically the current timetable and teaching weeks. Furthermore, it indicates the Welcome Week and the Reading Weeks. Start date of the acamademic year can easily be changed in the code as well as the definition of the autumn, spring, and reading weeks.
+Moodle block that shows automatically the current Academic timetable and teaching weeks. Furthermore, it indicates the Welcome Week, Assessment Weeks, Summer Weeks, Vacations, and Reading Weeks. Start date of the acamademic year and the week numbers for teaching, assessments, vacations, and reading weeks can be edited.
 
-Version 1.0.3. [Code for the block](timetableweek.html)
+Version 1.1.0 [Code for the block](timetableweek.html)
